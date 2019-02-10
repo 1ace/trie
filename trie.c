@@ -1,63 +1,50 @@
 /* SPDX-License-Identifier: MIT */
 
-#include <assert.h>
-#include <stdbool.h>
-#include <stdlib.h>
-
-#include "macros.h"
-
 #include "trie.h"
 
-#define TRIE_ALNUM_LEN 63 // [a-zA-Z0-9_]
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 struct trie {
+   char *prefix;
    void *value;
-   struct trie *children[TRIE_ALNUM_LEN];
+   struct trie *children[255];
 };
 
 struct trie *
 trie_create(void)
 {
-   return malloc(sizeof(struct trie));
+   return calloc(1, sizeof(struct trie));
 }
 
 void
 trie_destroy(struct trie * const trie)
 {
-   if (!trie)
+   if (!trie) {
       return;
+   }
 
-   for (size_t i = 0; i < TRIE_ALNUM_LEN; i++)
+   free(trie->prefix);
+
+   for (unsigned int i = 0; i < 255; i++) {
       trie_destroy(trie->children[i]);
+   }
 
    free(trie);
 }
 
-static inline bool
-trie_index(char c, size_t *index)
+static
+bool
+has_children(struct trie * const trie)
 {
-   size_t i;
-
-   if ('a' <= c && c <= 'z')
-      i = c - 'a';
-
-   else if ('A' <= c && c <= 'Z')
-      i = c - 'A' + 26;
-
-   else if ('0' <= c && c <= '9')
-      i = c - '0' + 52;
-
-   else if (c == '_')
-      i = 62;
-
-   else {
-      assert(!"unsupported char");
-      return false;
+   for (unsigned int i = 0; i < 255; ++i)
+   {
+      if (trie->children[i])
+         return true;
    }
-
-   assert(i < TRIE_ALNUM_LEN);
-   *index = i;
-   return true;
+   return false;
 }
 
 bool
@@ -65,29 +52,57 @@ trie_insert(struct trie * const trie,
             const char * const name,
             void * const value)
 {
+   if (!value)
+      return false;
+
    struct trie *node = trie;
 
-   if (!name || !name[0])
+   if (!name)
       return false;
 
-   for (const char *c = name; *c; c++)
+   for (const char *c = name; *c; ++c)
    {
-      size_t index;
+      if (!node->value && !has_children(node))
+      {
+         node->prefix = strcpy(calloc(strlen(c)+1, sizeof(char)), c);
+         break;
+      }
 
-      if (!trie_index(*c, &index))
-         return false;
+      if (node->prefix)
+      {
+         const char *d = node->prefix;
+         for (; *d && *c && *d == *c; ++d, ++c);
+         if (*d) {
+            // we didn't reach the end of node->prefix
+            // we must split
+            struct trie *newchild = trie_create();
+            size_t suffixlen = strlen(d);
+            newchild->prefix = suffixlen ? strcpy(calloc(suffixlen, sizeof(char)), d+1) : NULL;
+            newchild->value = node->value;
+            memcpy(newchild->children, node->children, sizeof(newchild->children));
 
-      if (!node->children[index])
-         node->children[index] = calloc(1, sizeof(*node->children[index]));
+            size_t prefixlen = d-node->prefix;
+            node->prefix = realloc(node->prefix, prefixlen+1);
+            char pivot = node->prefix[prefixlen];
+            node->prefix[prefixlen] = 0;
+            node->value = NULL;
+            memset(node->children, 0, sizeof(node->children));
+            node->children[pivot-1] = newchild;
+         }
+         if (!*c) {
+            // we reached the end of node->prefix and the end of name, the current node is the one we were looking for
+            // replace/update the value
+            break;
+         }
+      }
 
-      if (!node->children[index])
-         return false;
+      if (!node->children[(*c)-1])
+      {
+         node->children[(*c)-1] = trie_create();
+      }
 
-      node = node->children[index];
+      node = node->children[(*c)-1];
    }
-
-   if (node->value)
-      return false;
 
    node->value = value;
    return true;
@@ -100,25 +115,34 @@ trie_fetch(const struct trie * const trie,
 {
    const struct trie *node = trie;
 
-   if (!name || !name[0])
+   if (!name)
       return false;
 
-   for (const char *c = name; *c; c++)
+   for (const char *c = name; *c; ++c)
    {
-      size_t index;
+      if (node->prefix)
+      {
+         const char *d = node->prefix;
+         for (; *d && *c && *d == *c; ++d, ++c);
+         if (*d) {
+            // we didn't reach the end of node->prefix
+            return false;
+         }
+         if (!*c) {
+            // we reached the end of node->prefix and the end of name, the current node is the one we were looking for
+            break;
+         }
+      }
 
-      if (!trie_index(*c, &index))
+      if (!node->children[(*c)-1])
          return false;
 
-      if (!node->children[index])
-         return false;
-
-      node = node->children[index];
+      node = node->children[(*c)-1];
    }
 
-   if (value)
-      *value = node->value;
+   if (!value)
+      return false;
 
+   *value = node->value;
    return true;
 }
-
