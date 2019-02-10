@@ -7,7 +7,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+struct trie_flags {
+   bool prefix_owned : 1;
+};
+
 struct trie {
+   struct trie_flags flags;
    char *prefix;
    void *value;
    struct trie *children[255];
@@ -26,7 +31,8 @@ trie_destroy(struct trie * const trie)
       return;
    }
 
-   free(trie->prefix);
+   if (trie->flags.prefix_owned)
+      free(trie->prefix);
 
    for (unsigned int i = 0; i < 255; i++) {
       trie_destroy(trie->children[i]);
@@ -65,10 +71,11 @@ trie_insert(struct trie * const trie,
       if (!node->value && !has_children(node))
       {
          node->prefix = strcpy(calloc(strlen(c)+1, sizeof(char)), c);
+         node->flags.prefix_owned = true;
          break;
       }
 
-      if (node->prefix)
+      if (node->prefix && node->prefix[0])
       {
          const char *d = node->prefix;
          for (; *d && *c && *d == *c; ++d, ++c);
@@ -76,18 +83,17 @@ trie_insert(struct trie * const trie,
             // we didn't reach the end of node->prefix
             // we must split
             struct trie *newchild = trie_create();
-            size_t suffixlen = strlen(d);
-            newchild->prefix = suffixlen ? strcpy(calloc(suffixlen, sizeof(char)), d+1) : NULL;
+            newchild->prefix = (char *)d+1;
             newchild->value = node->value;
             memcpy(newchild->children, node->children, sizeof(newchild->children));
 
-            size_t prefixlen = d-node->prefix;
-            node->prefix = realloc(node->prefix, prefixlen+1);
-            char pivot = node->prefix[prefixlen];
-            node->prefix[prefixlen] = 0;
             node->value = NULL;
             memset(node->children, 0, sizeof(node->children));
-            node->children[pivot-1] = newchild;
+            node->children[(*d)-1] = newchild;
+
+            // Truncate the prefix after using d to assign newchild to the correct edge above
+            size_t prefixlen = d-node->prefix;
+            node->prefix[prefixlen] = 0;
          }
          if (!*c) {
             // we reached the end of node->prefix and the end of name, the current node is the one we were looking for
@@ -120,7 +126,7 @@ trie_fetch(const struct trie * const trie,
 
    for (const char *c = name; *c; ++c)
    {
-      if (node->prefix)
+      if (node->prefix && node->prefix[0])
       {
          const char *d = node->prefix;
          for (; *d && *c && *d == *c; ++d, ++c);
