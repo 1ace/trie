@@ -8,6 +8,8 @@ use-test: use-test.o lib.o
 
 trie_test: trie_test.o trie.o
 
+testpackedstring: testpackedstring.o packedstring.o
+
 lib.o: lib.c egl_trie.h
 
 egl_trie.h: egl_entrypoints.txt
