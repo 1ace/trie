@@ -6,7 +6,7 @@ CFLAGS += -Werror=undef
 
 use-test: use-test.o lib.o
 
-trie_test: trie_test.o trie.o
+trie_test: trie_test.o trie.o packedstring.o
 
 testpackedstring: testpackedstring.o packedstring.o
 

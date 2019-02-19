@@ -2,13 +2,16 @@
 
 #include "trie.h"
 
+#include "packedstring.h"
+
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+
 struct trie {
-   char *prefix;
+   struct packedstring *prefix;
    void *value;
    unsigned char nchildren;
    struct trie *children;
@@ -19,6 +22,7 @@ void
 trie_init(struct trie *trie)
 {
    memset(trie, 0, sizeof(struct trie));
+   trie->prefix = packedstring_create();
 }
 
 struct trie *
@@ -36,8 +40,7 @@ trie_destroy(struct trie * const trie)
       return;
    }
 
-   if (trie->prefix)
-      free(trie->prefix);
+   packedstring_destroy(&trie->prefix);
 
    if (trie->children)
       free(trie->children);
@@ -52,7 +55,9 @@ trie_print(const struct trie * const trie,
 {
    for (int i = 0; i < level; ++i)
       printf("%s", "--");
-   printf("%s => %p\n", trie->prefix, trie->value);
+   char buf[80] = {0};
+   packedstring_strncpyfrompackedstring(buf, &trie->prefix, sizeof(buf)-1);
+   printf("%s => %p\n", buf, trie->value);
    for (int i = 0; i < trie->nchildren; ++i)
       trie_print(&trie->children[i], level+1);
 }
@@ -62,9 +67,12 @@ int
 trie_cmp(const char *key,
          const struct trie *trie)
 {
-   char *prefix = "";
-   if (trie && trie->prefix)
-      prefix = trie->prefix;
+   char buf[sizeof(char*)] = {0};
+   const char * prefix;
+   if (trie)
+      prefix = packedstring_robuf(&trie->prefix, buf);
+   else
+      prefix = buf;
    return key[0] > prefix[0] ? 1 : (key[0] == prefix[0] ? 0 : -1);
 }
 
@@ -94,8 +102,7 @@ trie_insert(struct trie * const trie,
             const char * const name,
             void * const value)
 {
-   printf("insert %s => %p\n", name, value);
-   trie_print(trie, 0);
+   printf("inserted %s => %p\n", name, value);
    if (!value)
       return false;
 
@@ -104,9 +111,10 @@ trie_insert(struct trie * const trie,
 
    if (!trie->prefix)
    {
-      printf("replace root\n");
-      trie->prefix = strcpy(calloc(strlen(name)+1, sizeof(char)), name);
+      printf("replaced root\n");
+      packedstring_strncpytopackedstring(&trie->prefix, name, strlen(name)+1);
       trie->value = value;
+      trie_print(trie, 0);
       return true;
    }
 
@@ -114,20 +122,24 @@ trie_insert(struct trie * const trie,
 
    for (const char *c = name; *c;)
    {
-      const char *d = node->prefix;
+      char buf[sizeof(char*)];
+      const char * const robuf = packedstring_robuf(&node->prefix, buf);
+      const char *d = robuf;
       for (; *d && *c && *d == *c; ++d, ++c);
       if (*d) {
          // we didn't reach the end of node->prefix
          // we must split
          struct trie *newchild = trie_create();
-         newchild->prefix = strcpy(calloc(strlen(d)+1, sizeof(char)), d);
+         packedstring_strncpytopackedstring(&newchild->prefix, d, strlen(d)+1);
          newchild->value = node->value;
          newchild->nchildren = node->nchildren;
          newchild->children = node->children;
 
-         size_t prefixlen = d-node->prefix;
-         node->prefix = realloc(node->prefix, prefixlen+1);
-         node->prefix[prefixlen] = 0;
+         size_t prefixlen = d-robuf;
+         char nbuf[prefixlen+1];
+         strncpy(nbuf, robuf, prefixlen);
+         nbuf[prefixlen] = 0;
+         packedstring_strncpytopackedstring(&node->prefix, nbuf, prefixlen+1);
          node->value = NULL;
          node->nchildren = 1;
          node->children = newchild;
@@ -148,7 +160,7 @@ trie_insert(struct trie * const trie,
             memmove(&node->children[index+1], &node->children[index], (len-index)*sizeof(struct trie));
 
          trie_init(&node->children[index]);
-         node->children[index].prefix = strcpy(calloc(strlen(c)+1, sizeof(char)), c);
+         packedstring_strncpytopackedstring(&node->children[index].prefix, c, strlen(c)+1);
          node = &node->children[index];
          break;
       }
@@ -157,7 +169,6 @@ trie_insert(struct trie * const trie,
 
    node->value = value;
 
-   printf("inserted %s => %p\n", name, value);
    trie_print(trie, 0);
    return true;
 }
@@ -174,9 +185,10 @@ trie_fetch(const struct trie * const trie,
 
    for (const char *c = name; *c;)
    {
-      if (node->prefix && node->prefix[0])
+      if (node->prefix)
       {
-         const char *d = node->prefix;
+         char buf[sizeof(char*)];
+         const char *d = packedstring_robuf(&node->prefix, buf);
          for (; *d && *c && *d == *c; ++d, ++c);
          if (*d) {
             // we didn't reach the end of node->prefix
