@@ -64,9 +64,11 @@ trie_print(const struct trie * const trie,
 
 static
 int
-trie_cmp(const char *key,
-         const struct trie *trie)
+trie_cmp(const void *search,
+         const void *element)
 {
+   const char *key = search;
+   const struct trie *trie = element;
    char buf[sizeof(char*)] = {0};
    const char * prefix;
    if (trie)
@@ -83,18 +85,12 @@ trie_bsearch(const char *key,
              const size_t len,
              size_t * const index)
 {
-   size_t s = 0, e = len, c;
-   int cmp;
-   while (c = (s+e)/2, cmp = trie_cmp(key, &list[c]), cmp && c > 0 && c < e)
-   {
-      if (cmp > 0)
-         s = c + 1;
-      else
-         e = c;
-   }
-   if (index)
-      *index = c;
-   return cmp == 0;
+   struct trie *t = bsearch(key, list, len,
+                            sizeof(struct trie),
+                            trie_cmp);
+   if (t && index)
+      *index = t - list;
+   return !!t;
 }
 
 bool
