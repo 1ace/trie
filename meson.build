@@ -41,6 +41,10 @@ lib = library('foo',
   [files('lib.c'), generated_source]
 )
 
+test('trie',
+  executable('trie_test', files('trie_test.c', 'packedstring.c', 'trie.c'))
+)
+
 test('use-test',
   executable('use-test',
     files('use-test.c'),
